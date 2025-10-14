@@ -21,7 +21,7 @@ def authenticate_google_sheets(credentials_path: str) -> object:
         raise FileNotFoundError(f"Credentials file not found at: {credentials_path}")
 
     try:
-        scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+        scopes = ['https://www.googleapis.com/auth/spreadsheets']
         creds = service_account.Credentials.from_service_account_file(
             credentials_path, scopes=scopes)
 

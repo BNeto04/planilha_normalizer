@@ -1,32 +1,39 @@
 import sys
 import os
+from dotenv import load_dotenv
 from google_sheets_extractor.auth import authenticate_google_sheets
-from google_sheets_extractor.reader import get_spreadsheet_metadata, get_sheet_values
-from google_sheets_extractor.transformer import normalize_data, generate_semantic_json
+from google_sheets_extractor.reader import get_multiple_sheet_values
+from google_sheets_extractor.transformer import normalize_data
+from google_sheets_extractor.processor import reconcile_and_calculate
+from google_sheets_extractor.writer import create_new_sheet, write_to_spreadsheet
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --- CONFIGURATION ---
-# IMPORTANT: Replace with your actual Spreadsheet ID and credentials file path.
-SPREADSHEET_ID = "YOUR_SPREADSHEET_ID_HERE"
-CREDENTIALS_FILE = "path/to/your/credentials.json"
-# Optional: Specify a single sheet to process. If None, all sheets will be processed.
-# TARGET_SHEET_TITLE = "Sheet1"
-TARGET_SHEET_TITLE = None
+# Load from environment variables
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
+CREDENTIALS_FILE = os.getenv("CREDENTIALS_FILE")
+# The new sheet where the report will be saved
+OUTPUT_SHEET_TITLE = "RelatorioFinal"
+# The source sheets to be processed
+SOURCE_SHEETS = ["Pontuação", "Ocorrência", "Armas"]
 
 def main():
     """
-    Main orchestrator to extract, transform, and save data from Google Sheets.
+    Main orchestrator to extract, transform, process, and save data from Google Sheets.
     """
-    print("Starting Google Sheets data extraction process...")
+    print("Starting Google Sheets data processing pipeline...")
 
     # 1. Authentication
     try:
-        if not os.path.exists(CREDENTIALS_FILE):
+        if not CREDENTIALS_FILE or not os.path.exists(CREDENTIALS_FILE):
             print(f"Error: Credentials file not found at '{CREDENTIALS_FILE}'.")
-            print("Please update the CREDENTIALS_FILE variable in main.py.")
+            print("Please ensure the CREDENTIALS_FILE environment variable is set correctly.")
             sys.exit(1)
 
-        if SPREADSHEET_ID == "YOUR_SPREADSHEET_ID_HERE":
-            print("Error: Please replace 'YOUR_SPREADSHEET_ID_HERE' with your actual Spreadsheet ID.")
+        if not SPREADSHEET_ID:
+            print("Error: SPREADSHEET_ID environment variable not set.")
             sys.exit(1)
 
         service = authenticate_google_sheets(CREDENTIALS_FILE)
@@ -35,59 +42,50 @@ def main():
         print(f"Authentication failed: {e}")
         sys.exit(1)
 
-    # 2. Get Sheet Metadata
+    # 2. Read Data from Multiple Sheets
     try:
-        metadata = get_spreadsheet_metadata(service, SPREADSHEET_ID)
-        sheets = metadata.get('sheets', [])
-        if not sheets:
-            print("No sheets found in the spreadsheet.")
-            sys.exit(0)
-
-        print(f"Found {len(sheets)} sheet(s) in the spreadsheet.")
+        print(f"Reading data from sheets: {', '.join(SOURCE_SHEETS)}")
+        raw_data_map = get_multiple_sheet_values(service, SPREADSHEET_ID, SOURCE_SHEETS)
     except Exception as e:
-        print(f"Failed to retrieve spreadsheet metadata: {e}")
+        print(f"Failed to read data from sheets: {e}")
         sys.exit(1)
 
-    # 3. Process each sheet
-    all_results = []
-    for sheet in sheets:
-        sheet_title = sheet.get('properties', {}).get('title')
-        if not sheet_title:
-            continue
+    # 3. Normalize Data
+    normalized_data_map = {}
+    for sheet_title, raw_values in raw_data_map.items():
+        if raw_values:
+            normalized_data_map[sheet_title] = normalize_data(raw_values)
+            print(f"Normalized data for sheet: '{sheet_title}'.")
+        else:
+            print(f"No data found in sheet: '{sheet_title}'.")
 
-        if TARGET_SHEET_TITLE and sheet_title != TARGET_SHEET_TITLE:
-            print(f"Skipping sheet: '{sheet_title}' (not the target).")
-            continue
+    # 4. Process and Calculate Metrics
+    try:
+        print("Reconciling data and calculating metrics...")
+        metrics_df = reconcile_and_calculate(normalized_data_map)
+        if metrics_df.empty:
+            print("No metrics were generated. Exiting.")
+            sys.exit(0)
+        print("Metrics calculated successfully.")
+        print("First 5 rows of the final report:")
+        print(metrics_df.head())
+    except Exception as e:
+        print(f"An error occurred during data processing: {e}")
+        sys.exit(1)
 
-        print(f"Processing sheet: '{sheet_title}'...")
+    # 5. Write Report to a New Sheet
+    try:
+        print(f"Preparing to write report to sheet: '{OUTPUT_SHEET_TITLE}'")
+        # Ensure the output sheet exists
+        create_new_sheet(service, SPREADSHEET_ID, OUTPUT_SHEET_TITLE)
+        # Write the DataFrame to the sheet
+        write_to_spreadsheet(service, SPREADSHEET_ID, OUTPUT_SHEET_TITLE, metrics_df)
+        print("Report successfully written to Google Sheets.")
+    except Exception as e:
+        print(f"Failed to write the report to Google Sheets: {e}")
+        sys.exit(1)
 
-        try:
-            # 4. Read Data
-            raw_values = get_sheet_values(service, SPREADSHEET_ID, sheet_title)
-            if not raw_values:
-                print(f"No data found in sheet: '{sheet_title}'. Skipping.")
-                continue
-
-            # 5. Normalize Data
-            normalized_records = normalize_data(raw_values)
-
-            # 6. Generate JSON
-            json_output = generate_semantic_json(normalized_records, SPREADSHEET_ID, sheet_title)
-
-            # Save the output to a file
-            output_filename = f"output_{sheet_title}.json"
-            with open(output_filename, 'w', encoding='utf-8') as f:
-                f.write(json_output)
-
-            print(f"Successfully processed and saved data for '{sheet_title}' to '{output_filename}'.")
-            all_results.append(json_output)
-
-        except Exception as e:
-            print(f"An error occurred while processing sheet '{sheet_title}': {e}")
-
-    print("\nProcess finished.")
-    if not all_results:
-        print("No data was processed.")
+    print("\nProcessing pipeline finished successfully.")
 
 if __name__ == "__main__":
     main()
