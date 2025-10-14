@@ -5,7 +5,12 @@ from google_sheets_extractor.auth import authenticate_google_sheets
 from google_sheets_extractor.reader import get_multiple_sheet_values
 from google_sheets_extractor.transformer import normalize_data
 from google_sheets_extractor.processor import reconcile_and_calculate
-from google_sheets_extractor.writer import create_new_sheet, write_to_spreadsheet
+from google_sheets_extractor.writer import (
+    create_new_sheet,
+    write_to_spreadsheet,
+    get_sheet_id,
+    add_dashboard_enhancements
+)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -79,16 +84,23 @@ def main():
         print(f"An error occurred during data processing: {e}")
         sys.exit(1)
 
-    # 5. Write Report to a New Sheet
+    # 5. Write Report and Enhance Sheet
     try:
         print(f"Preparing to write report to sheet: '{OUTPUT_SHEET_TITLE}'")
-        # Ensure the output sheet exists
+        # Ensure the output sheet exists and get its ID
         create_new_sheet(service, SPREADSHEET_ID, OUTPUT_SHEET_TITLE)
+        sheet_id = get_sheet_id(service, SPREADSHEET_ID, OUTPUT_SHEET_TITLE)
+
         # Write the DataFrame to the sheet
         write_to_spreadsheet(service, SPREADSHEET_ID, OUTPUT_SHEET_TITLE, metrics_df)
-        print("Report successfully written to Google Sheets.")
+        print("Report data successfully written to Google Sheets.")
+
+        # Add dashboard enhancements
+        end_row, end_column = metrics_df.shape
+        add_dashboard_enhancements(service, SPREADSHEET_ID, sheet_id, end_row + 1, end_column)
+
     except Exception as e:
-        print(f"Failed to write the report to Google Sheets: {e}")
+        print(f"An error occurred during the write/enhancement process: {e}")
         sys.exit(1)
 
     print("\nProcessing pipeline finished successfully.")
