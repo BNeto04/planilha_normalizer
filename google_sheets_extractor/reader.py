@@ -1,4 +1,40 @@
+import os
+import pickle
+import time
+import hashlib
 from googleapiclient.errors import HttpError
+
+# --- CACHE CONFIGURATION ---
+CACHE_DIR = "cache"
+CACHE_DURATION = 3600  # Cache duration in seconds (1 hour)
+
+def _get_cache_key(spreadsheet_id: str, sheet_titles: list) -> str:
+    """Generates a unique cache key for a set of sheets."""
+    # Sort titles to ensure cache key is consistent regardless of order
+    sorted_titles = sorted(sheet_titles)
+    key_string = f"{spreadsheet_id}_{'_'.join(sorted_titles)}"
+    # Use a hash to keep the filename manageable
+    return hashlib.md5(key_string.encode()).hexdigest() + ".pkl"
+
+def _load_from_cache(cache_path: str) -> dict | None:
+    """Loads data from a cache file if it's valid."""
+    if os.path.exists(cache_path):
+        # Check if the cache file is within the CACHE_DURATION
+        file_mod_time = os.path.getmtime(cache_path)
+        if (time.time() - file_mod_time) < CACHE_DURATION:
+            print(f"Cache hit. Loading data from {cache_path}")
+            with open(cache_path, "rb") as f:
+                return pickle.load(f)
+    print("Cache miss.")
+    return None
+
+def _save_to_cache(cache_path: str, data: dict):
+    """Saves data to a cache file."""
+    # Ensure the cache directory exists
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    print(f"Saving data to cache: {cache_path}")
+    with open(cache_path, "wb") as f:
+        pickle.dump(data, f)
 
 def get_spreadsheet_metadata(service: object, spreadsheet_id: str) -> dict:
     """
@@ -59,6 +95,7 @@ def get_sheet_values(service: object, spreadsheet_id: str, sheet_title: str) -> 
 def get_multiple_sheet_values(service: object, spreadsheet_id: str, sheet_titles: list) -> dict:
     """
     Retrieves all values from multiple specific sheets within a spreadsheet using a batch request.
+    It uses a local cache to avoid redundant API calls.
 
     Args:
         service (object): The authorized Google Sheets API service object.
@@ -71,6 +108,17 @@ def get_multiple_sheet_values(service: object, spreadsheet_id: str, sheet_titles
     Raises:
         HttpError: If the API call fails.
     """
+    # --- CACHE LOGIC ---
+    cache_key = _get_cache_key(spreadsheet_id, sheet_titles)
+    cache_path = os.path.join(CACHE_DIR, cache_key)
+
+    # Try loading from cache first
+    cached_data = _load_from_cache(cache_path)
+    if cached_data is not None:
+        return cached_data
+
+    # If cache miss, fetch from API
+    print("Fetching data from Google Sheets API...")
     try:
         ranges = [f"'{title}'!A:Z" for title in sheet_titles]
 
@@ -86,9 +134,11 @@ def get_multiple_sheet_values(service: object, spreadsheet_id: str, sheet_titles
         # The response contains a list of 'valueRanges'. We need to map them back to sheet titles.
         results = {}
         for i, value_range in enumerate(response.get('valueRanges', [])):
-            # Extract the sheet title from the range string used in the request
             sheet_title = sheet_titles[i]
             results[sheet_title] = value_range.get('values', [])
+
+        # Save the fresh data to cache
+        _save_to_cache(cache_path, results)
 
         return results
     except HttpError as e:

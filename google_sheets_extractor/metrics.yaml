@@ -1,0 +1,14 @@
+# Defines the dynamic metrics to be calculated by the processor.
+# Each key under 'metrics' becomes a column in the final report.
+#
+# - 'column': The source column from the merged DataFrame.
+# - 'agg': The aggregation function to apply.
+#   Supported functions are mapped in processor.py (e.g., 'sum', 'count', 'count_non_zero').
+
+metrics:
+  total_pontuacao:
+    column: pontuacao
+    agg: sum
+  quantidade_ocorrencias:
+    column: ocorrencia
+    agg: count_non_zero
