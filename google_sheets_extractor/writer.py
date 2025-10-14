@@ -1,4 +1,10 @@
 from googleapiclient.errors import HttpError
+from google_sheets_extractor.report_enhancements import (
+    create_filter_view_request,
+    create_chart_request,
+    create_slicer_request,
+    create_auto_resize_columns_request,
+)
 
 def create_new_sheet(service: object, spreadsheet_id: str, sheet_title: str):
     """
@@ -106,167 +112,32 @@ def add_dashboard_enhancements(service: object, spreadsheet_id: str, sheet_id: i
     """
     print("Adding dashboard enhancements (filters, charts, slicers)...")
 
-    requests = []
+    requests = [
+        create_filter_view_request(sheet_id, end_row, end_column),
+        create_chart_request(sheet_id, end_row, end_column),
+        create_slicer_request(sheet_id, end_row, end_column),
+        create_auto_resize_columns_request(sheet_id, end_column),
+    ]
 
-    # 1. Add Filter View
-    requests.append({
-        "addFilterView": {
-            "filter": {
-                "title": "Filtro por Matrícula e Período",
-                "range": {
-                    "sheetId": sheet_id,
-                    "startRowIndex": 0,
-                    "endRowIndex": end_row,
-                    "startColumnIndex": 0,
-                    "endColumnIndex": end_column
-                }
-            }
-        }
-    })
-
-    # 2. Add Chart
-    requests.append({
-        "addChart": {
-            "chart": {
-                "spec": {
-                    "title": "Métricas por Matrícula",
-                    "basicChart": {
-                        "chartType": "COLUMN",
-                        "legendPosition": "BOTTOM_LEGEND",
-                        "axis": [
-                            {
-                                "position": "BOTTOM_AXIS",
-                                "title": "Matrícula"
-                            },
-                            {
-                                "position": "LEFT_AXIS",
-                                "title": "Valores"
-                            }
-                        ],
-                        "domains": [
-                            {
-                                "domain": {
-                                    "sourceRange": {
-                                        "sources": [
-                                            {
-                                                "sheetId": sheet_id,
-                                                "startRowIndex": 0,
-                                                "endRowIndex": end_row,
-                                                "startColumnIndex": 0,
-                                                "endColumnIndex": 1
-                                            }
-                                        ]
-                                    }
-                                }
-                            }
-                        ],
-                        "series": [
-                            {
-                                "series": {
-                                    "sourceRange": {
-                                        "sources": [
-                                            {
-                                                "sheetId": sheet_id,
-                                                "startRowIndex": 0,
-                                                "endRowIndex": end_row,
-                                                "startColumnIndex": 2,
-                                                "endColumnIndex": 3
-                                            }
-                                        ]
-                                    }
-                                },
-                                "targetAxis": "LEFT_AXIS"
-                            },
-                            {
-                                "series": {
-                                    "sourceRange": {
-                                        "sources": [
-                                            {
-                                                "sheetId": sheet_id,
-                                                "startRowIndex": 0,
-                                                "endRowIndex": end_row,
-                                                "startColumnIndex": 3,
-                                                "endColumnIndex": 4
-                                            }
-                                        ]
-                                    }
-                                },
-                                "targetAxis": "LEFT_AXIS"
-                            }
-                        ]
-                    }
-                },
-                "position": {
-                    "overlayPosition": {
-                        "anchorCell": {
+    # Add Developer Metadata for each row
+    for i in range(1, end_row):  # Skip header row
+        requests.append({
+            "createDeveloperMetadata": {
+                "developerMetadata": {
+                    "metadataKey": "origem_conciliacao",
+                    "metadataValue": "v1.0",
+                    "location": {
+                        "dimensionRange": {
                             "sheetId": sheet_id,
-                            "rowIndex": 1,
-                            "columnIndex": end_column + 1
+                            "dimension": "ROWS",
+                            "startIndex": i,
+                            "endIndex": i + 1
                         }
-                    }
-                }
-            }
-        }
-    })
-
-    # 3. Add Slicer
-    requests.append({
-        "addSlicer": {
-            "slicer": {
-                "spec": {
-                    "dataRange": {
-                        "sheetId": sheet_id,
-                        "startRowIndex": 0,
-                        "endRowIndex": end_row,
-                        "startColumnIndex": 0,
-                        "endColumnIndex": end_column
                     },
-                    "title": "Filtro por Período",
-                    "columnIndex": 1  # Assuming 'periodo' is the second column
-                },
-                "position": {
-                    "overlayPosition": {
-                        "anchorCell": {
-                            "sheetId": sheet_id,
-                            "rowIndex": 1,
-                            "columnIndex": end_column + 7
-                        }
-                    }
+                    "visibility": "PROJECT"
                 }
             }
-        }
-    })
-
-    # 4. Auto-resize columns
-    requests.append({
-        "autoResizeDimensions": {
-            "dimensions": {
-                "sheetId": sheet_id,
-                "dimension": "COLUMNS",
-                "startIndex": 0,
-                "endIndex": end_column
-            }
-        }
-    })
-
-    # 5. Add Developer Metadata
-    requests.append({
-        "createDeveloperMetadata": {
-            "developerMetadata": {
-                "metadataKey": "origem_conciliacao",
-                "metadataValue": "v1.0",
-                "location": {
-                    "dimensionRange": {
-                        "sheetId": sheet_id,
-                        "dimension": "ROWS",
-                        "startIndex": 0,
-                        "endIndex": end_row
-                    }
-                },
-                "visibility": "PROJECT"
-            }
-        }
-    })
+        })
 
     try:
         body = {"requests": requests}

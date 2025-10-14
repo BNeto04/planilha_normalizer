@@ -62,13 +62,19 @@ def reconcile_and_calculate(data_dict: dict, metrics_config_path: str) -> pd.Dat
     for metric in metrics_config.values():
         col = metric['column']
         if col in merged_df.columns:
-            merged_df[col] = merged_df[col].fillna(0)
+            # For count operations, we need to fill with a value that indicates "no event"
+            # but for sum, we need to fill with 0.
+            if metric['agg'] == 'count':
+                # Fill with a value that won't be counted, but preserves the column
+                merged_df[col] = merged_df[col].fillna(pd.NA)
+            else:
+                merged_df[col] = merged_df[col].fillna(0)
 
     # Define grouping keys
     grouping_keys = ['matricula']
     if 'periodo' in merged_df.columns:
-        grouping_keys.append('periodo')
-        merged_df['periodo'] = merged_df.groupby('matricula')['periodo'].ffill().bfill()
+        # Take the first available period for each matricula
+        merged_df['periodo'] = merged_df.groupby('matricula')['periodo'].transform('first')
 
     # Build the aggregation dictionary dynamically from the config
     agg_dict = {}
