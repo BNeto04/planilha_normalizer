@@ -18,6 +18,8 @@ CREDENTIALS_FILE = os.getenv("CREDENTIALS_FILE")
 OUTPUT_SHEET_TITLE = "RelatorioFinal"
 # The source sheets to be processed
 SOURCE_SHEETS = ["Pontuação", "Ocorrência", "Armas"]
+# Path to the metrics configuration file
+METRICS_CONFIG_FILE = "google_sheets_extractor/metrics.yaml"
 
 def main():
     """
@@ -61,8 +63,12 @@ def main():
 
     # 4. Process and Calculate Metrics
     try:
+        if not os.path.exists(METRICS_CONFIG_FILE):
+            print(f"Error: Metrics configuration file not found at '{METRICS_CONFIG_FILE}'.")
+            sys.exit(1)
+
         print("Reconciling data and calculating metrics...")
-        metrics_df = reconcile_and_calculate(normalized_data_map)
+        metrics_df = reconcile_and_calculate(normalized_data_map, METRICS_CONFIG_FILE)
         if metrics_df.empty:
             print("No metrics were generated. Exiting.")
             sys.exit(0)
