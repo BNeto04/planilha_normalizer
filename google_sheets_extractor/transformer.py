@@ -44,11 +44,8 @@ def normalize_data(raw_values: list) -> list:
         for i, value in enumerate(row):
             if i < len(header_row):
                 header = header_row[i]
-                # Check if the value is numeric (int or float) to identify potential date serials
-                if isinstance(value, (int, float)):
-                    # A simple heuristic: if a number is large, it could be a date.
-                    # This could be refined with more context if needed.
-                    # For now, we assume any numeric value could be a date to be converted.
+                # Check if the value is numeric and the column is likely a date
+                if isinstance(value, (int, float)) and "periodo" in header:
                     try:
                         record[header] = _convert_serial_to_datetime(value)
                     except (ValueError, TypeError):

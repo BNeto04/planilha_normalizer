@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from google_sheets_extractor.auth import authenticate_google_sheets
 from google_sheets_extractor.reader import get_multiple_sheet_values
 from google_sheets_extractor.transformer import normalize_data
+from google_sheets_extractor.schemas import validate_data
 from google_sheets_extractor.processor import reconcile_and_calculate
 from google_sheets_extractor.writer import (
     create_new_sheet,
@@ -18,18 +19,23 @@ load_dotenv()
 # --- CONFIGURATION ---
 # The new sheet where the report will be saved
 OUTPUT_SHEET_TITLE = "RelatorioFinal"
-# The source sheets to be processed
-SOURCE_SHEETS = ["Pontuação", "Ocorrência", "Armas"]
+# Default source sheets if none are provided
+DEFAULT_SOURCE_SHEETS = ["Pontuação", "Ocorrência", "Armas"]
 # Path to the metrics configuration file
 METRICS_CONFIG_FILE = "google_sheets_extractor/metrics.yaml"
 
-def main(spreadsheet_id: str = None, credentials_file: str = None):
+def main(
+    spreadsheet_id: str = None,
+    credentials_file: str = None,
+    source_sheets: list[str] = None
+):
     """
     Main orchestrator to extract, transform, process, and save data from Google Sheets.
 
     Args:
         spreadsheet_id (str, optional): The ID of the Google Spreadsheet. Defaults to env var.
         credentials_file (str, optional): Path to credentials file. Defaults to env var.
+        source_sheets (list[str], optional): A list of sheet titles to process. Defaults to DEFAULT_SOURCE_SHEETS.
     """
     print("Starting Google Sheets data processing pipeline...")
 
@@ -54,20 +60,28 @@ def main(spreadsheet_id: str = None, credentials_file: str = None):
         print(f"Authentication failed: {e}")
         sys.exit(1)
 
+    # Determine which source sheets to use
+    sheets_to_process = source_sheets or DEFAULT_SOURCE_SHEETS
+
     # 2. Read Data from Multiple Sheets
     try:
-        print(f"Reading data from sheets: {', '.join(SOURCE_SHEETS)}")
-        raw_data_map = get_multiple_sheet_values(service, sheet_id_to_process, SOURCE_SHEETS)
+        print(f"Reading data from sheets: {', '.join(sheets_to_process)}")
+        raw_data_map = get_multiple_sheet_values(service, sheet_id_to_process, sheets_to_process)
     except Exception as e:
         print(f"Failed to read data from sheets: {e}")
         sys.exit(1)
 
-    # 3. Normalize Data
+    # 3. Normalize and Validate Data
     normalized_data_map = {}
     for sheet_title, raw_values in raw_data_map.items():
         if raw_values:
-            normalized_data_map[sheet_title] = normalize_data(raw_values)
+            normalized_data = normalize_data(raw_values)
             print(f"Normalized data for sheet: '{sheet_title}'.")
+
+            # Validate the normalized data against the schema
+            validate_data(sheet_title, normalized_data)
+
+            normalized_data_map[sheet_title] = normalized_data
         else:
             print(f"No data found in sheet: '{sheet_title}'.")
 
