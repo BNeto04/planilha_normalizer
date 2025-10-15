@@ -16,9 +16,6 @@ from google_sheets_extractor.writer import (
 load_dotenv()
 
 # --- CONFIGURATION ---
-# Load from environment variables
-SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
-CREDENTIALS_FILE = os.getenv("CREDENTIALS_FILE")
 # The new sheet where the report will be saved
 OUTPUT_SHEET_TITLE = "RelatorioFinal"
 # The source sheets to be processed
@@ -26,24 +23,32 @@ SOURCE_SHEETS = ["Pontuação", "Ocorrência", "Armas"]
 # Path to the metrics configuration file
 METRICS_CONFIG_FILE = "google_sheets_extractor/metrics.yaml"
 
-def main():
+def main(spreadsheet_id: str = None, credentials_file: str = None):
     """
     Main orchestrator to extract, transform, process, and save data from Google Sheets.
+
+    Args:
+        spreadsheet_id (str, optional): The ID of the Google Spreadsheet. Defaults to env var.
+        credentials_file (str, optional): Path to credentials file. Defaults to env var.
     """
     print("Starting Google Sheets data processing pipeline...")
 
+    # Determine credentials and spreadsheet ID to use
+    creds_file = credentials_file or os.getenv("CREDENTIALS_FILE")
+    sheet_id_to_process = spreadsheet_id or os.getenv("SPREADSHEET_ID")
+
     # 1. Authentication
     try:
-        if not CREDENTIALS_FILE or not os.path.exists(CREDENTIALS_FILE):
-            print(f"Error: Credentials file not found at '{CREDENTIALS_FILE}'.")
-            print("Please ensure the CREDENTIALS_FILE environment variable is set correctly.")
+        if not creds_file or not os.path.exists(creds_file):
+            print(f"Error: Credentials file not found at '{creds_file}'.")
+            print("Please ensure the CREDENTIALS_FILE environment variable is set or passed as an argument.")
             sys.exit(1)
 
-        if not SPREADSHEET_ID:
-            print("Error: SPREADSHEET_ID environment variable not set.")
+        if not sheet_id_to_process:
+            print("Error: SPREADSHEET_ID environment variable not set or passed as an argument.")
             sys.exit(1)
 
-        service = authenticate_google_sheets(CREDENTIALS_FILE)
+        service = authenticate_google_sheets(creds_file)
         print("Authentication successful.")
     except Exception as e:
         print(f"Authentication failed: {e}")
@@ -52,7 +57,7 @@ def main():
     # 2. Read Data from Multiple Sheets
     try:
         print(f"Reading data from sheets: {', '.join(SOURCE_SHEETS)}")
-        raw_data_map = get_multiple_sheet_values(service, SPREADSHEET_ID, SOURCE_SHEETS)
+        raw_data_map = get_multiple_sheet_values(service, sheet_id_to_process, SOURCE_SHEETS)
     except Exception as e:
         print(f"Failed to read data from sheets: {e}")
         sys.exit(1)
@@ -88,16 +93,16 @@ def main():
     try:
         print(f"Preparing to write report to sheet: '{OUTPUT_SHEET_TITLE}'")
         # Ensure the output sheet exists and get its ID
-        create_new_sheet(service, SPREADSHEET_ID, OUTPUT_SHEET_TITLE)
-        sheet_id = get_sheet_id(service, SPREADSHEET_ID, OUTPUT_SHEET_TITLE)
+        create_new_sheet(service, sheet_id_to_process, OUTPUT_SHEET_TITLE)
+        sheet_id = get_sheet_id(service, sheet_id_to_process, OUTPUT_SHEET_TITLE)
 
         # Write the DataFrame to the sheet
-        write_to_spreadsheet(service, SPREADSHEET_ID, OUTPUT_SHEET_TITLE, metrics_df)
+        write_to_spreadsheet(service, sheet_id_to_process, OUTPUT_SHEET_TITLE, metrics_df)
         print("Report data successfully written to Google Sheets.")
 
         # Add dashboard enhancements
         end_row, end_column = metrics_df.shape
-        add_dashboard_enhancements(service, SPREADSHEET_ID, sheet_id, end_row + 1, end_column)
+        add_dashboard_enhancements(service, sheet_id_to_process, sheet_id, end_row + 1, end_column)
 
     except Exception as e:
         print(f"An error occurred during the write/enhancement process: {e}")
@@ -106,4 +111,5 @@ def main():
     print("\nProcessing pipeline finished successfully.")
 
 if __name__ == "__main__":
+    # When running as a script, it uses environment variables
     main()

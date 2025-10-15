@@ -7,22 +7,25 @@ app = FastAPI()
 
 class RunRequest(BaseModel):
     spreadsheet_id: str
-    metrics_profile: str | None = None
+    credentials_file: str | None = None
 
 @app.post("/run")
 async def run(request: RunRequest):
     """
     Triggers the data processing pipeline.
     """
-    # Set environment variables for the pipeline
-    os.environ["SPREADSHEET_ID"] = request.spreadsheet_id
-    if request.metrics_profile:
-        os.environ["METRICS_CONFIG_FILE"] = request.metrics_profile
-
     try:
-        run_pipeline()
+        # Call the pipeline directly with arguments
+        run_pipeline(
+            spreadsheet_id=request.spreadsheet_id,
+            credentials_file=request.credentials_file
+        )
         return {"status": "Pipeline executed successfully."}
+    except SystemExit as e:
+        # SystemExit is raised on configuration errors, treat as a client error
+        return HTTPException(status_code=400, detail=f"Pipeline stopped with exit code {e.code}.")
     except Exception as e:
+        # Catch other exceptions as internal server errors
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/status")
