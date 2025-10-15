@@ -1,43 +1,98 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
-import os
+from typing import List, Dict
+import uuid
+import datetime
+
 from google_sheets_extractor.main import main as run_pipeline
 
 app = FastAPI()
 
+# In-memory store for job statuses
+job_store: Dict[str, Dict] = {}
+
+# --- Models ---
 class RunRequest(BaseModel):
     spreadsheet_id: str
     credentials_file: str | None = None
+    source_sheets: List[str] | None = None
 
-@app.post("/run")
-async def run(request: RunRequest):
-    """
-    Triggers the data processing pipeline.
-    """
+class JobResponse(BaseModel):
+    job_id: str
+    status: str
+    submitted_at: datetime.datetime
+
+class StatusResponse(BaseModel):
+    job_id: str
+    status: str
+    submitted_at: datetime.datetime
+    finished_at: datetime.datetime | None = None
+    result: str | None = None
+
+# --- Helper Function ---
+def execute_pipeline_task(job_id: str, request: RunRequest):
+    """Wrapper to run the pipeline and update job status."""
     try:
-        # Call the pipeline directly with arguments
         run_pipeline(
             spreadsheet_id=request.spreadsheet_id,
-            credentials_file=request.credentials_file
+            credentials_file=request.credentials_file,
+            source_sheets=request.source_sheets
         )
-        return {"status": "Pipeline executed successfully."}
-    except SystemExit as e:
-        # SystemExit is raised on configuration errors, treat as a client error
-        return HTTPException(status_code=400, detail=f"Pipeline stopped with exit code {e.code}.")
+        job_store[job_id]["status"] = "completed"
+        job_store[job_id]["result"] = "Pipeline executed successfully."
     except Exception as e:
-        # Catch other exceptions as internal server errors
-        raise HTTPException(status_code=500, detail=str(e))
+        job_store[job_id]["status"] = "failed"
+        job_store[job_id]["result"] = str(e)
+    finally:
+        job_store[job_id]["finished_at"] = datetime.datetime.utcnow()
 
-@app.get("/status")
-async def get_status():
+# --- Endpoints ---
+@app.post("/run", response_model=JobResponse)
+async def run(request: RunRequest, background_tasks: BackgroundTasks):
     """
-    Returns the status of the service.
+    Triggers the data processing pipeline as a background task.
     """
-    return {"status": "ok"}
+    job_id = str(uuid.uuid4())
+    job_store[job_id] = {
+        "status": "running",
+        "submitted_at": datetime.datetime.utcnow(),
+        "finished_at": None,
+        "result": None,
+        "spreadsheet_id": request.spreadsheet_id # Store for last-report
+    }
+
+    background_tasks.add_task(execute_pipeline_task, job_id, request)
+
+    return JobResponse(
+        job_id=job_id,
+        status="running",
+        submitted_at=job_store[job_id]["submitted_at"]
+    )
+
+@app.get("/status/{job_id}", response_model=StatusResponse)
+async def get_status(job_id: str):
+    """
+    Retrieves the status of a specific job.
+    """
+    job = job_store.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return StatusResponse(**job, job_id=job_id)
 
 @app.get("/last-report")
 async def get_last_report():
     """
-    (Not implemented) Returns information about the last generated report.
+    Returns information about the last successfully completed report.
     """
-    return {"message": "Endpoint not yet implemented."}
+    # Find the most recent, successfully completed job
+    completed_jobs = [
+        job for job in job_store.values() if job["status"] == "completed"
+    ]
+    if not completed_jobs:
+        raise HTTPException(status_code=404, detail="No completed reports found.")
+
+    last_job = max(completed_jobs, key=lambda x: x["finished_at"])
+    return {
+        "spreadsheet_id": last_job.get("spreadsheet_id"),
+        "finished_at": last_job.get("finished_at")
+    }
