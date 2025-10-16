@@ -7,3 +7,4 @@ PyYAML
 pytest
 fastapi
 uvicorn
+streamlit
